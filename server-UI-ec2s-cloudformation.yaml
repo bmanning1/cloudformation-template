@@ -1,0 +1,154 @@
+Description: A template to create 2 EC2 Instance (UI nginx react EC2 in public subnet & backend node express pm2 EC2 in private subnet) from a pre baked AMI.
+Parameters:
+  DBHost:
+    Type: String
+    Default: "todo-db-instance.c1ccmbaov9qn.eu-west-2.rds.amazonaws.com"
+  DBUser:
+    Type: String
+    Default: "root"
+  DBPass:
+    Type: String
+    Default: "admin1234"
+Resources:
+  TodoUIInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: TodoServerInstance
+    Properties:
+      ImageId: "ami-03dd06df4763b4047"
+      InstanceType: "t2.micro"
+      SecurityGroupIds:
+        - "sg-0acefba8a2e017994"
+      SubnetId: "subnet-089790d88d36e3c0c"
+      KeyName: "todo"
+      Tags:
+        -
+          Key: Name
+          Value: Todo UI EC2 Instance
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # if you want to print the output of a cmd to a file put this after it: 2>&1 | tee fileToPrintTo
+
+          # create file for logs
+          mkdir /tmp/logs
+
+          # install nginx
+          apt-get install -y nginx 2>&1 | tee /tmp/logs/nginxInstall
+
+          # node, nvm, npm are installed but not linked path wise so run the following
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+
+          git clone https://github.com/bmanning1/todo-ui.git
+          cd /todo-ui
+          npm i 2>&1 | tee /tmp/logs/npmInstall
+          npm run build 2>&1 | tee /tmp/logs/npmbuild
+          mv /todo-ui /home/ubuntu/todo-ui
+
+          # replace nginx config
+          # rm /etc/nginx/sites-available/default
+
+          # print the following to default file
+          cat << EOF >> default
+          server {
+            listen 80 default_server;
+            listen [::]:80 default_server;
+            location / {
+              root /home/ubuntu/todo-ui/build;
+              index index.html;
+            }
+            server_name localhost;
+            location /api/ {
+                proxy_pass http://${TodoServerInstance.PrivateIp}:8080/;
+            }
+          }
+          EOF
+
+          # replace nginx config
+          mv default /etc/nginx/sites-available/
+
+          # refresh nginx
+          service nginx restart 2>&1 | tee /tmp/logs/nginxrestart
+  TodoUIElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        -
+          Key: Name
+          Value: TodoUIInstance EIP
+      Domain: vpc
+      InstanceId: !Ref TodoUIInstance
+  TodoServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: "ami-03dd06df4763b4047"
+      InstanceType: "t2.micro"
+      SecurityGroupIds:
+        - "sg-00b5e6cc7fe2ea1e6"
+      SubnetId: "subnet-0a258af2200ff39f7"
+      KeyName: "todo"
+      Tags:
+        -
+          Key: Name
+          Value: Todo Server EC2 Instance
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # if you want to print the output of a cmd to a file put this after it: 2>&1 | tee fileToPrintTo
+
+          # create file for logs
+          mkdir /tmp/logs
+
+          # node, nvm, npm are installed but not linked path wise so run the following
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+
+          git clone https://github.com/bmanning1/todo-server.git
+          cd /todo-server
+          npm i
+          mv /todo-server /home/ubuntu/todo-server
+
+          cd /home/ubuntu/todo-server
+
+          # install pm2 to keep the server running on reboot
+          npm i pm2 -g 2>&1 | tee /tmp/logs/pm2install
+
+          # print the following to pm2.config.js file
+          cat << EOF >> /home/ubuntu/pm2.config.js
+          module.exports = {
+            apps : [
+                {
+                  name: "todo",
+                  script: "/home/ubuntu/todo-server/index.js",
+                  watch: true,
+                  env: {
+                      "PORT": 8080,
+                      "NODE_ENV": "development",
+                      "DB_HOST": "${DBHost}",
+                      "DB_USER": "${DBUser}",
+                      "DB_PASS": "${DBPass}"
+                  },
+                  env_production: {
+                      "PORT": 80,
+                      "NODE_ENV": "production",
+                  }
+                }
+            ]
+          }
+          EOF
+
+          pm2 start /home/ubuntu/pm2.config.js --env development 2>&1 | tee /tmp/logs/pm2start
+          pm2 list 2>&1 | tee /tmp/logs/pm2list
+
+          # start on reboot
+          pm2 startup
+          pm2 save
+  TodoServerElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        -
+          Key: Name
+          Value: TodoServerInstance EIP
+      Domain: vpc
+      InstanceId: !Ref TodoServerInstance
