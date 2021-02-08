@@ -71,3 +71,7 @@ EOF
 chown ubuntu:ubuntu /tmp/subscript.sh && chmod a+x /tmp/subscript.sh
 sleep 1; su - ubuntu -c "/tmp/subscript.sh"
 ```
+
+### DependsOn
+
+DependsOn is required on the TodoUIInstance because it depends on TodoServerInstance IP address (see the user data) so TodoServerInstance has to be created first.
