@@ -7,15 +7,15 @@ Prior to this, a VPC, IGW, Route tables, RDS (mysql), Security groups, NAT Gatew
 
 ## Notes
 
-# Speaking to ports
+### Speaking to ports
 Remember if a node server is running on port 8080, set the inbound rules of that EC2 security group to allow custom TCP connections to port 8080 of 0.0.0.0/0. Also the same for outbound rules of EC2 security groups connecting to it.
 
-# EC2 in public subnet to speak to EC2 in private
+### EC2 in public subnet to speak to EC2 in private
 Nginx has been used to proxy requests to the EC2 in the private subnet. Without this, the requests will be made from the browser and not the UI. The browser/internet cannot speak to the EC2 in the private subnet but the EC2 in the public can because it is in the same network.
 
 Express can be set up to do the same.
 
-# Keep the server running on reboot
+### Keep the server running on reboot
 Running node index.js works until the ec2 restarts or you exit the terminal. Use pm2 to keep it running.
 
 Another way is to keep your node app running with `systemd` or docker containers.
